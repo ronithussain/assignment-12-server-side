@@ -30,11 +30,32 @@ async function run() {
 
 
         // crud operation is starts here
+        const postCollection = client.db("forumsDB").collection("postItems");
 
-        const assignmentCollection = client.db("finalAssignmentDB").collection("assignment12");
 
-        app.get('/assignment12', async (req, res) => {
-            const result = await assignmentCollection.find().toArray();
+        //postCollection------------------------get
+        app.get('/postCount/:email', async(req, res) => {
+            const email = req.params.email;
+            const filter = {authorEmail: email};
+            const result = await postCollection.countDocuments(filter);
+            res.send({count:result})
+        })
+        // postCollection------------------------get
+        app.get('/announcements', async (req, res) => {
+            const result = await postCollection.find().toArray();
+            res.send(result);
+        })
+        //postCollection-------------------------post
+        app.post('/addItems', async (req, res) => {
+            const addItems = req.body;
+            const email = addItems.authorEmail;
+            const postCount = await postCollection.countDocuments({authorEmail: email});
+
+            if (postCount >= 5) {
+                return res.status(403).send({ message: "Post limit exceeded! Upgrade to a membership." });
+            }
+
+            const result = await postCollection.insertOne(addItems);
             res.send(result);
         })
 
