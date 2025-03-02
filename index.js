@@ -37,7 +37,7 @@ async function run() {
         //-----------------------------------------------------
 
 
-        // 👍 Like a post
+        //  Like a post ---------------------------------
         app.patch("/posts/like/:id", async (req, res) => {
             const postId = new ObjectId(req.params.id);
             const { userEmail } = req.body;
@@ -56,7 +56,7 @@ async function run() {
             res.json({ success: true });
         });
 
-        // 👎 Dislike a post
+        //  Dislike a post----------------------------------
         app.patch("/posts/dislike/:id", async (req, res) => {
             const postId = new ObjectId(req.params.id);
             const { userEmail } = req.body;
@@ -86,17 +86,36 @@ async function run() {
         });
 
         // API to add comment
-app.post("/post/:id/comments", async (req, res) => {
-    const id = req.params.id;
-    const { userId, userName, userImage, comment } = req.body;
-  
-    const result = await postCollection.updateOne(
-      { _id: new ObjectId(id) },
-      { $push: { comments: { userId, userName, userImage, comment, date: new Date() } } }
-    );
-  
-    res.json({ success: result.modifiedCount > 0 });
-  });
+        app.post("/post/comment/:id", async (req, res) => {
+            try {
+                const id = req.params.id;
+                const { userId, userName, userImage, comment } = req.body;
+
+                if (!userId || !comment) {
+                    return res.status(400).json({ message: "User ID and comment are required." });
+                }
+
+                const result = await postCollection.updateOne(
+                    { _id: new ObjectId(id) },
+                    {
+                        $push: {
+                            comments: { userId, userName, userImage, comment, date: new Date() }
+                        }
+                    }
+                );
+
+                if (result.modifiedCount === 1) {
+                    res.status(200).json({ message: "Comment added successfully." });
+                } else {
+                    res.status(500).json({ message: "Failed to add comment." });
+                }
+            } catch (error) {
+                console.error("Error adding comment:", error);
+                res.status(500).json({ message: "Internal server error." });
+            }
+        });
+
+
         //postCollection-----post count-----get
         app.get('/postCount/:email', async (req, res) => {
             const email = req.params.email;
@@ -105,39 +124,25 @@ app.post("/post/:id/comments", async (req, res) => {
             res.send({ count: result })
         })
         // postCollection-----get all data------get
-        app.get('/posts', async (req, res) => {
-            //default sorting----------
-            const sortBy = req.query.sort || "newest";
-            let sortCondition = { createdAt: -1 } //newest first
-            if (sortBy === "popularity") {
-                sortCondition = { voteDifference: -1 };
+        app.get("/posts", async (req, res) => {
+            const { sortBy } = req.query;
+            let sortQuery = {};
+
+            if (sortBy === "newest") {
+                sortQuery = { createdAt: -1 };
+            } else if (sortBy === "popularity") {
+                sortQuery = { upVote: -1 };
             }
 
-            const posts = await postCollection.aggregate([
-                {
-                    $addFields: { voteDifference: { $subtract: ["$upVote", "$downVote"] } }
-                },
-                { $sort: sortCondition },
-                {
-                    $lookup: {
-                        from: "comments",
-                        localField: "_id",
-                        foreignField: "postId",
-                        as: "comments"
-                    }
-                },
-                {
-                    $addFields: { commentCount: { $size: "$comments" } }
-                },
-                {
-                    $project: {
-                        comments: 0 // Don't return full comments array, just count
-                    }
-                }
-            ]).toArray();
+            try {
+                const posts = await postCollection.find().sort(sortQuery).toArray();
+                res.json(posts);
+            } catch (error) {
+                res.status(500).json({ error: "Failed to fetch posts" });
+            }
+        });
 
-            res.send(posts);
-        })
+
         //postCollection----add new post----post
         app.post('/addItems', async (req, res) => {
             const addItems = {
@@ -156,6 +161,23 @@ app.post("/post/:id/comments", async (req, res) => {
             res.send(result);
         })
 
+
+        // postCollection--------my post----get
+        app.get('/myPosts', async (req, res) => {
+            const email = req.query.email;
+            const query = { authorEmail: email };
+            const result = await postCollection.find(query).toArray();
+            res.send(result);
+        });
+
+        // postCollection--------my post----delete
+        app.delete('/myPosts/:id', async (req, res) => {
+            const id = req.params.id;
+            const query = { _id: new ObjectId(id) };
+            const result = await postCollection.deleteOne(query);
+            console.log(query, result);
+            res.send(result);
+        })
 
 
 
