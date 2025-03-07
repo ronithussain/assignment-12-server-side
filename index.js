@@ -46,7 +46,7 @@ async function run() {
         })
         //middlewares
         const verifyToken = (req, res, next) => {
-            console.log('inside verify token', req.headers.authorization)
+            // console.log('inside verify token', req.headers.authorization)
             if (!req.headers.authorization) {
                 return res.status(401).send({ message: 'Unauthorized access' });
             }
@@ -61,12 +61,23 @@ async function run() {
                 });
             
         };
+        const verifyAdmin = async (req, res, next) => {
+            const email = req.decoded.email; // decoded er moddhe je email chilo setake neya holo
+            const query = {email: email}; // query diye present email k neya holo
+            const user = await usersCollection.findOne(query); // userCollection e email take findOne kora hocche
+            const isAdmin = user?.role === 'admin'; // check kora hocche user er role admin ki na?
+            if(!isAdmin) { // jodi admin na hoy tahole 403 forbidden access return kore dibe
+                return res.status(403).send({ message: 'forbidden access'})
+            };
+            next(); // jodi hoy tahole next e jete parbe!
+
+        }
         //__________________jwt ends here___________________
 
         // UsersCollection starts here_________________________
 
         // userCollection--------user/admin/:email---or--not
-        app.get('/user/admin/:email', verifyToken, async(req, res) => { // ekhane authProvider e je email ase seta req.body theke niye decoded er sathe present email ke check kora hocche je ai email er role ta admin ki na?
+        app.get('/users/admin/:email', verifyToken, async(req, res) => { // ekhane authProvider e je email ase seta req.body theke niye decoded er sathe present email ke check kora hocche je ai email er role ta admin ki na?
             const email = req.params.email;
             if(email !== req.decoded.email){
                 return res.status(403).send({message: 'unauthorized access'})
