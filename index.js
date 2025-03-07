@@ -1,6 +1,7 @@
 const express = require('express');
 const app = express();
 const cors = require('cors');
+const jwt = require('jsonwebtoken')
 require('dotenv').config();
 const port = process.env.PORT || 7000;
 const { ObjectId } = require("mongodb"); // objectId import kora holo
@@ -31,10 +32,112 @@ async function run() {
 
 
         // crud operation is starts here
-        const postCollection = client.db("forumsDB").collection("postItems");
-        const commentCollection = client.db("forumsDB").collection("comments")
-
+        const postsCollection = client.db("forumsDB").collection("postItems");
+        const commentsCollection = client.db("forumsDB").collection("comments");
+        const usersCollection = client.db("forumsDB").collection('users');
         //-----------------------------------------------------
+
+        //__________________jwt starts here_________________
+        //api/post 1:
+        app.post('/jwt', async (req, res) => {
+            const user = req.body;
+            const token = jwt.sign(user, process.env.ACCESS_TOKEN_SECRET, { expiresIn: '1h' });
+            res.send({ token });
+        })
+        //middlewares
+        const verifyToken = (req, res, next) => {
+            console.log('inside verify token', req.headers.authorization)
+            if (!req.headers.authorization) {
+                return res.status(401).send({ message: 'Unauthorized access' });
+            }
+            const token = req.headers.authorization.split(' ')[1];
+            
+                jwt.verify(token, process.env.ACCESS_TOKEN_SECRET, (err, decoded) => {
+                    if (err) {
+                        return res.status(401).send({ message: 'Unauthorized access' })
+                    }
+                    req.decoded = decoded;
+                    next();
+                });
+            
+        };
+        //__________________jwt ends here___________________
+
+        // UsersCollection starts here_________________________
+
+        // userCollection--------user/admin/:email---or--not
+        app.get('/user/admin/:email', verifyToken, async(req, res) => { // ekhane authProvider e je email ase seta req.body theke niye decoded er sathe present email ke check kora hocche je ai email er role ta admin ki na?
+            const email = req.params.email;
+            if(email !== req.decoded.email){
+                return res.status(403).send({message: 'unauthorized access'})
+            }
+
+            const query = {email: email};
+            const user = await usersCollection.findOne(query);
+            let admin = false;
+            if(user){
+                admin = user?.role === 'admin'
+            }
+            res.send({admin});
+        })
+        // usersCollection-------subscription--------patch
+        app.patch('/users/subscription/:id', async (req, res) => {
+            const id = req.params.id;
+            const filter = { _id: new ObjectId(id) };
+            const updateDoc = {
+                $set: {
+                    subscription: 'subscription'
+                }
+            };
+            const result = await usersCollection.updateOne(filter, updateDoc);
+            res.send(result);
+        });
+        // usersCollection-------admin-------patch
+        app.patch('/users/admin/:id', async (req, res) => {
+            const id = req.params.id;
+            const filter = { _id: new ObjectId(id) };
+            const updateDoc = {
+                $set: {
+                    role: 'admin'
+                }
+            };
+            const result = await usersCollection.updateOne(filter, updateDoc);
+            res.send(result);
+        })
+        // usersCollection--------------------deleted
+        app.delete('/users/:id', async (req, res) => {
+            const id = req.params.id;
+            const query = { _id: new ObjectId(id) };
+            const result = await usersCollection.deleteOne(query);
+            console.log(query, result);
+            res.send(result);
+        })
+        // usersCollection--------search and get------get
+        app.get('/users',verifyToken, async (req, res) => {
+            const search = req.query.search || '';
+            const query = search ? { name: { $regex: search, $options: 'i' } } : {};
+            const result = await usersCollection.find(query).toArray();
+            res.send(result);
+        })
+        // usersCollection---------------------get
+        // app.get('/users',verifyToken, async(req, res) => {
+        //     const result = await usersCollection.find().toArray();
+        //     res.send(result);
+        // })
+        // usersCollection---------------------post
+        app.post('/users', async (req, res) => {
+            const user = req.body;
+            // insert email if user dosent exists:
+            // you can do this many ways (1. email unique, 2. upsert, 3.simple checking)
+            const query = { email: user.email };
+            const existingUser = await usersCollection.findOne(query);
+            if (existingUser) {
+                return res.send({ message: 'user already exists', insertedId: null })
+            };
+            const result = await usersCollection.insertOne(user);
+            res.send(result);
+        })
+        // UsersCollection ends here_________________________
 
 
         //  Like a post ---------------------------------
@@ -42,7 +145,7 @@ async function run() {
             const postId = new ObjectId(req.params.id);
             const { userEmail } = req.body;
 
-            const post = await postCollection.findOne({ _id: postId });
+            const post = await postsCollection.findOne({ _id: postId });
 
             if (post.downVoters?.includes(userEmail)) {
                 return res.json({ error: "Already disliked! Remove dislike first." });
@@ -52,7 +155,7 @@ async function run() {
                 ? { $pull: { upVoters: userEmail }, $inc: { upVote: -1 } } // Remove like
                 : { $addToSet: { upVoters: userEmail }, $inc: { upVote: 1 } }; // Add like
 
-            await postCollection.updateOne({ _id: postId }, update);
+            await postsCollection.updateOne({ _id: postId }, update);
             res.json({ success: true });
         });
 
@@ -61,7 +164,7 @@ async function run() {
             const postId = new ObjectId(req.params.id);
             const { userEmail } = req.body;
 
-            const post = await postCollection.findOne({ _id: postId });
+            const post = await postsCollection.findOne({ _id: postId });
 
             if (post.upVoters?.includes(userEmail)) {
                 return res.json({ error: "Already liked! Remove like first." });
@@ -71,7 +174,7 @@ async function run() {
                 ? { $pull: { downVoters: userEmail }, $inc: { downVote: -1 } } // Remove dislike
                 : { $addToSet: { downVoters: userEmail }, $inc: { downVote: 1 } }; // Add dislike
 
-            await postCollection.updateOne({ _id: postId }, update);
+            await postsCollection.updateOne({ _id: postId }, update);
             res.json({ success: true });
         });
         //-----------------------------------------------------
@@ -81,7 +184,8 @@ async function run() {
         //postCollection-------post-details------get
         app.get("/post-details/:id", async (req, res) => {
             const id = req.params.id;
-            const post = await postCollection.findOne({ _id: new ObjectId(id) });
+            const query = { _id: new ObjectId(id) };
+            const post = await postsCollection.findOne(query);
             res.json(post);
         });
 
@@ -95,7 +199,7 @@ async function run() {
                     return res.status(400).json({ message: "User ID and comment are required." });
                 }
 
-                const result = await postCollection.updateOne(
+                const result = await postsCollection.updateOne(
                     { _id: new ObjectId(id) },
                     {
                         $push: {
@@ -120,7 +224,7 @@ async function run() {
         app.get('/postCount/:email', async (req, res) => {
             const email = req.params.email;
             const filter = { authorEmail: email };
-            const result = await postCollection.countDocuments(filter);
+            const result = await postsCollection.countDocuments(filter);
             res.send({ count: result })
         })
         // postCollection-----get all data------get
@@ -135,7 +239,7 @@ async function run() {
             }
 
             try {
-                const posts = await postCollection.find().sort(sortQuery).toArray();
+                const posts = await postsCollection.find().sort(sortQuery).toArray();
                 res.json(posts);
             } catch (error) {
                 res.status(500).json({ error: "Failed to fetch posts" });
@@ -151,13 +255,13 @@ async function run() {
                 downVoters: []
             };
             const email = addItems.authorEmail;
-            const postCount = await postCollection.countDocuments({ authorEmail: email });
+            const postCount = await postsCollection.countDocuments({ authorEmail: email });
 
             if (postCount >= 5) {
                 return res.status(403).send({ message: "Post limit exceeded! Upgrade to a membership." });
             }
 
-            const result = await postCollection.insertOne(addItems);
+            const result = await postsCollection.insertOne(addItems);
             res.send(result);
         })
 
@@ -166,7 +270,7 @@ async function run() {
         app.get('/myPosts', async (req, res) => {
             const email = req.query.email;
             const query = { authorEmail: email };
-            const result = await postCollection.find(query).toArray();
+            const result = await postsCollection.find(query).toArray();
             res.send(result);
         });
 
@@ -174,13 +278,44 @@ async function run() {
         app.delete('/myPosts/:id', async (req, res) => {
             const id = req.params.id;
             const query = { _id: new ObjectId(id) };
-            const result = await postCollection.deleteOne(query);
+            const result = await postsCollection.deleteOne(query);
             console.log(query, result);
             res.send(result);
         })
 
+        // postCollection--------my post----viewComments
+        app.get('/comments/:id', async (req, res) => {
+            const id = req.params.id;
+            const query = { _id: new ObjectId(id) };
+            const result = await postsCollection.find(query).toArray();
+            console.log(result);
+            res.send(result);
+        });
 
+        // 🟢 Get user profile data
+        // app.get('/profile/:email', async (req, res) => {
+        //     const email = req.params.email;
+        //     const user = await usersCollection.findOne({ email }); // ✅ Fix: postsCollection -> usersCollection
 
+        //     if (!user) return res.status(404).json({ message: "User not found" });
+
+        //     const badges = user.isMember ? ["gold"] : ["bronze"];
+
+        //     // Fetch recent posts
+        //     const recentPosts = await postsCollection
+        //         .find({ email })
+        //         .sort({ createdAt: -1 })
+        //         .limit(3)
+        //         .toArray(); // ✅ Get last 3 posts
+
+        //     res.json({
+        //         name: user.name,
+        //         email: user.email,
+        //         image: user.image,
+        //         badges,
+        //         posts: recentPosts
+        //     });
+        // });
 
 
 
