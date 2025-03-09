@@ -35,6 +35,7 @@ async function run() {
         const postsCollection = client.db("forumsDB").collection("postItems");
         const commentsCollection = client.db("forumsDB").collection("comments");
         const usersCollection = client.db("forumsDB").collection('users');
+        const tagsCollection = client.db("forumsDB").collection('tags');
         //-----------------------------------------------------
 
         //__________________jwt starts here_________________
@@ -51,23 +52,23 @@ async function run() {
                 return res.status(401).send({ message: 'Unauthorized access' });
             }
             const token = req.headers.authorization.split(' ')[1];
-            
-                jwt.verify(token, process.env.ACCESS_TOKEN_SECRET, (err, decoded) => {
-                    if (err) {
-                        return res.status(401).send({ message: 'Unauthorized access' })
-                    }
-                    req.decoded = decoded;
-                    next();
-                });
-            
+
+            jwt.verify(token, process.env.ACCESS_TOKEN_SECRET, (err, decoded) => {
+                if (err) {
+                    return res.status(401).send({ message: 'Unauthorized access' })
+                }
+                req.decoded = decoded;
+                next();
+            });
+
         };
         const verifyAdmin = async (req, res, next) => {
             const email = req.decoded.email; // decoded er moddhe je email chilo setake neya holo
-            const query = {email: email}; // query diye present email k neya holo
+            const query = { email: email }; // query diye present email k neya holo
             const user = await usersCollection.findOne(query); // userCollection e email take findOne kora hocche
             const isAdmin = user?.role === 'admin'; // check kora hocche user er role admin ki na?
-            if(!isAdmin) { // jodi admin na hoy tahole 403 forbidden access return kore dibe
-                return res.status(403).send({ message: 'forbidden access'})
+            if (!isAdmin) { // jodi admin na hoy tahole 403 forbidden access return kore dibe
+                return res.status(403).send({ message: 'forbidden access' })
             };
             next(); // jodi hoy tahole next e jete parbe!
 
@@ -76,23 +77,47 @@ async function run() {
 
         // UsersCollection starts here_________________________
 
+        // tagsCollection--------------------------get
+        app.get('/tags', async (req, res) => {
+            const result = await tagsCollection.find().toArray();
+            res.send(result);
+        })
+        // tagsCollection--------------------------post
+        app.post('/add-tag', async (req, res) => {
+            const tag = req.body;
+            const result = await tagsCollection.insertOne(tag);
+            res.send(result);
+        })
+        // userCollection-postCollection-commentCollection----get
+        app.get('/admin-profile', verifyToken, verifyAdmin, async (req, res) => {
+            const admin = await usersCollection.findOne({ role: "admin" });
+            const totalPosts = await postsCollection.countDocuments();
+            const totalUsers = await usersCollection.countDocuments();
+            res.send({
+                name: admin.name || "Unknown Admin",
+                email: admin.email,
+                image: admin.image,
+                totalPosts,
+                totalUsers,
+            });
+        })
         // userCollection--------user/admin/:email---or--not
-        app.get('/users/admin/:email', verifyToken, async(req, res) => { // ekhane authProvider e je email ase seta req.body theke niye decoded er sathe present email ke check kora hocche je ai email er role ta admin ki na?
+        app.get('/users/admin/:email', verifyToken, async (req, res) => { // ekhane authProvider e je email ase seta req.body theke niye decoded er sathe present email ke check kora hocche je ai email er role ta admin ki na?
             const email = req.params.email;
-            if(email !== req.decoded.email){
-                return res.status(403).send({message: 'unauthorized access'})
+            if (email !== req.decoded.email) {
+                return res.status(403).send({ message: 'unauthorized access' })
             }
 
-            const query = {email: email};
+            const query = { email: email };
             const user = await usersCollection.findOne(query);
             let admin = false;
-            if(user){
+            if (user) {
                 admin = user?.role === 'admin'
             }
-            res.send({admin});
+            res.send({ admin });
         })
         // usersCollection-------subscription--------patch
-        app.patch('/users/subscription/:id', async (req, res) => {
+        app.patch('/users/subscription/:id', verifyToken, verifyAdmin, async (req, res) => {
             const id = req.params.id;
             const filter = { _id: new ObjectId(id) };
             const updateDoc = {
@@ -104,7 +129,7 @@ async function run() {
             res.send(result);
         });
         // usersCollection-------admin-------patch
-        app.patch('/users/admin/:id', async (req, res) => {
+        app.patch('/users/admin/:id', verifyToken, verifyAdmin, async (req, res) => {
             const id = req.params.id;
             const filter = { _id: new ObjectId(id) };
             const updateDoc = {
@@ -116,7 +141,7 @@ async function run() {
             res.send(result);
         })
         // usersCollection--------------------deleted
-        app.delete('/users/:id', async (req, res) => {
+        app.delete('/users/:id', verifyToken, verifyAdmin, async (req, res) => {
             const id = req.params.id;
             const query = { _id: new ObjectId(id) };
             const result = await usersCollection.deleteOne(query);
@@ -124,11 +149,17 @@ async function run() {
             res.send(result);
         })
         // usersCollection--------search and get------get
-        app.get('/users',verifyToken, async (req, res) => {
+        app.get('/users', verifyToken, async (req, res) => {
             const search = req.query.search || '';
+            const page = parseInt(req.query.page) || 0;
+            const limit = parseInt(req.query.limit) || 5;
+            const skip = page * limit;
+
+
             const query = search ? { name: { $regex: search, $options: 'i' } } : {};
-            const result = await usersCollection.find(query).toArray();
-            res.send(result);
+            const result = await usersCollection.find(query).skip(skip).limit(limit).toArray();
+            const totalUsers = await usersCollection.countDocuments(query);
+            res.send({ result, totalPages: Math.ceil(totalUsers / limit) });
         })
         // usersCollection---------------------get
         // app.get('/users',verifyToken, async(req, res) => {
