@@ -36,6 +36,7 @@ async function run() {
         const commentsCollection = client.db("forumsDB").collection("comments");
         const usersCollection = client.db("forumsDB").collection('users');
         const tagsCollection = client.db("forumsDB").collection('tags');
+        const announcementsCollection = client.db("forumsDB").collection('announcements');
         //-----------------------------------------------------
 
         //__________________jwt starts here_________________
@@ -74,6 +75,23 @@ async function run() {
 
         }
         //__________________jwt ends here___________________
+
+        // AnnouncementCollection starts here________________
+        app.post('/announcements', async(req, res) => {
+            const announcement = req.body;
+    
+            announcement.createdAt = new Date().toISOString();
+            const result = await announcementsCollection.insertOne(announcement);
+            res.send(result);
+        })
+        app.get("/announcements", async (req, res) => {
+            const result = await announcementsCollection.find().toArray();
+            res.send(result);
+        });
+        // AnnouncementCollection ends here__________________
+
+
+
 
         // UsersCollection starts here_________________________
 
@@ -154,7 +172,6 @@ async function run() {
             const page = parseInt(req.query.page) || 0;
             const limit = parseInt(req.query.limit) || 5;
             const skip = page * limit;
-
 
             const query = search ? { name: { $regex: search, $options: 'i' } } : {};
             const result = await usersCollection.find(query).skip(skip).limit(limit).toArray();
