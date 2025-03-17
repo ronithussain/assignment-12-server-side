@@ -27,7 +27,7 @@ const client = new MongoClient(uri, {
 async function run() {
     try {
         // Connect the client to the server	(optional starting in v4.7)
-        await client.connect();
+        // await client.connect();
         // Send a ping to confirm a successful connection
 
 
@@ -76,10 +76,10 @@ async function run() {
         }
         //__________________jwt ends here___________________
 
-        // AnnouncementCollection starts here________________
-        app.post('/announcements', async(req, res) => {
+        // _________AnnouncementCollection starts here_________
+        app.post('/announcements', async (req, res) => {
             const announcement = req.body;
-    
+
             announcement.createdAt = new Date().toISOString();
             const result = await announcementsCollection.insertOne(announcement);
             res.send(result);
@@ -88,12 +88,12 @@ async function run() {
             const result = await announcementsCollection.find().toArray();
             res.send(result);
         });
-        // AnnouncementCollection ends here__________________
+        // _________AnnouncementCollection ends here________
 
 
 
 
-        // UsersCollection starts here_________________________
+        // __________UsersCollection starts here___________
 
         // tagsCollection--------------------------get
         app.get('/tags', async (req, res) => {
@@ -106,19 +106,19 @@ async function run() {
             const result = await tagsCollection.insertOne(tag);
             res.send(result);
         })
-        // userCollection-postCollection-commentCollection----get
-        app.get('/admin-profile', verifyToken, verifyAdmin, async (req, res) => {
-            const admin = await usersCollection.findOne({ role: "admin" });
-            const totalPosts = await postsCollection.countDocuments();
-            const totalUsers = await usersCollection.countDocuments();
+        // stats or analytics for pieChart and totalUser or posts and comments:API
+        app.get('/admin-stats', verifyToken, verifyAdmin, async (req, res) => {
+            const users = await usersCollection.estimatedDocumentCount();
+            const posts = await postsCollection.estimatedDocumentCount();
+            const comments = await commentsCollection.estimatedDocumentCount();
+            console.log("Admin Stats Data:", { users, posts, comments }); 
             res.send({
-                name: admin.name || "Unknown Admin",
-                email: admin.email,
-                image: admin.image,
-                totalPosts,
-                totalUsers,
-            });
+                users,
+                posts,
+                comments,
+            })
         })
+
         // userCollection--------user/admin/:email---or--not
         app.get('/users/admin/:email', verifyToken, async (req, res) => { // ekhane authProvider e je email ase seta req.body theke niye decoded er sathe present email ke check kora hocche je ai email er role ta admin ki na?
             const email = req.params.email;
@@ -196,7 +196,7 @@ async function run() {
             const result = await usersCollection.insertOne(user);
             res.send(result);
         })
-        // UsersCollection ends here_________________________
+        // _________UsersCollection ends here_________
 
 
         //  Like a post ---------------------------------
@@ -236,10 +236,55 @@ async function run() {
             await postsCollection.updateOne({ _id: postId }, update);
             res.json({ success: true });
         });
-        //-----------------------------------------------------
+
+
+        // ____________commentsCollection starts here___________
+        app.post('/comments', async (req, res) => {
+            const { postId, userEmail, userName, userImage, comment } = req.body;
+            if (!postId || !userEmail || !comment) {
+                return res.status(400).json({ message: "Post ID, User ID এবং Comment লাগবে!" });
+            }
+
+            const commentData = {
+                postId: new ObjectId(postId),
+                userEmail,
+                userName,
+                userImage,
+                comment,
+                date: new Date()
+            };
+            const result = await commentsCollection.insertOne(commentData);
+            // console.log(result)
+            res.send(result)
+        })
+        //commentsCollection-------get all comments comment button:
+        app.get('/comments/:postId', async (req, res) => {
+            const postId = req.params.postId;
+            const query = { postId: new ObjectId(postId) };
+            const result = await commentsCollection.find(query).toArray();
+            res.send(result);
+        });
+        //commentsCollection-----------reported---comments:
+        app.post('/report', async (req, res) => {
+            const { commentId, feedback } = req.body;
+        
+            // Ensure commentId is an ObjectId
+            const objectId = new ObjectId(commentId);
+        
+            // Update the comment with the report and feedback
+            const result = await commentsCollection.updateOne(
+                { _id: objectId },  // Find the comment by ObjectId
+                { $set: { reported: true, feedback: feedback } }  // Update fields
+            );
+        
+            res.send(result);
+        });
+        
+        // ____________commentsCollection ends here_____________
 
 
 
+        //_________postCollection starts here___________
         //postCollection-------post-details------get
         app.get("/post-details/:id", async (req, res) => {
             const id = req.params.id;
@@ -247,37 +292,6 @@ async function run() {
             const post = await postsCollection.findOne(query);
             res.json(post);
         });
-
-        // API to add comment
-        app.post("/post/comment/:id", async (req, res) => {
-            try {
-                const id = req.params.id;
-                const { userId, userName, userImage, comment } = req.body;
-
-                if (!userId || !comment) {
-                    return res.status(400).json({ message: "User ID and comment are required." });
-                }
-
-                const result = await postsCollection.updateOne(
-                    { _id: new ObjectId(id) },
-                    {
-                        $push: {
-                            comments: { userId, userName, userImage, comment, date: new Date() }
-                        }
-                    }
-                );
-
-                if (result.modifiedCount === 1) {
-                    res.status(200).json({ message: "Comment added successfully." });
-                } else {
-                    res.status(500).json({ message: "Failed to add comment." });
-                }
-            } catch (error) {
-                console.error("Error adding comment:", error);
-                res.status(500).json({ message: "Internal server error." });
-            }
-        });
-
 
         //postCollection-----post count-----get
         app.get('/postCount/:email', async (req, res) => {
@@ -296,15 +310,9 @@ async function run() {
             } else if (sortBy === "popularity") {
                 sortQuery = { upVote: -1 };
             }
-
-            try {
-                const posts = await postsCollection.find().sort(sortQuery).toArray();
-                res.json(posts);
-            } catch (error) {
-                res.status(500).json({ error: "Failed to fetch posts" });
-            }
+            const posts = await postsCollection.find().sort(sortQuery).toArray();
+            res.json(posts);
         });
-
 
         //postCollection----add new post----post
         app.post('/addItems', async (req, res) => {
@@ -332,6 +340,23 @@ async function run() {
             const result = await postsCollection.find(query).toArray();
             res.send(result);
         });
+        //____________________________________________________
+        
+        
+        //   app.post("/report-comment", async (req, res) => {
+        //     try {
+        //       const { commentId, feedback } = req.body;
+        //       await commentsCollection.updateOne(
+        //         { _id: new ObjectId(commentId) },
+        //         { $set: { feedback, reported: true } }
+        //       );
+        //       res.json({ message: "Comment reported successfully" });
+        //     } catch (error) {
+        //       res.status(500).json({ message: "Server error", error });
+        //     }
+        //   });
+          
+          
 
         // postCollection--------my post----delete
         app.delete('/myPosts/:id', async (req, res) => {
@@ -342,41 +367,23 @@ async function run() {
             res.send(result);
         })
 
-        // postCollection--------my post----viewComments
-        app.get('/comments/:id', async (req, res) => {
-            const id = req.params.id;
-            const query = { _id: new ObjectId(id) };
-            const result = await postsCollection.find(query).toArray();
-            console.log(result);
-            res.send(result);
-        });
+        //usersCollection-----postsCollection------get api for admin-profile:
+        app.get('/users/profile/:email', async (req, res) => {
+            const email = req.params.email;
 
-        // 🟢 Get user profile data
-        // app.get('/profile/:email', async (req, res) => {
-        //     const email = req.params.email;
-        //     const user = await usersCollection.findOne({ email }); // ✅ Fix: postsCollection -> usersCollection
+            const user = await usersCollection.findOne({ email });
+            const results = await postsCollection.find({ authorEmail: email }).sort({ createdAt: -1 }).limit(3).toArray();
+            console.log(results)
+            res.send({
+                name: user.name,
+                email: user.email,
+                image: user.image,
+                isMember: user.isMember,
+                results,
+            })
+        })
 
-        //     if (!user) return res.status(404).json({ message: "User not found" });
-
-        //     const badges = user.isMember ? ["gold"] : ["bronze"];
-
-        //     // Fetch recent posts
-        //     const recentPosts = await postsCollection
-        //         .find({ email })
-        //         .sort({ createdAt: -1 })
-        //         .limit(3)
-        //         .toArray(); // ✅ Get last 3 posts
-
-        //     res.json({
-        //         name: user.name,
-        //         email: user.email,
-        //         image: user.image,
-        //         badges,
-        //         posts: recentPosts
-        //     });
-        // });
-
-
+        //_________postCollection ends here___________
 
 
 
