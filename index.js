@@ -1,8 +1,10 @@
+require('dotenv').config();
 const express = require('express');
 const app = express();
 const cors = require('cors');
 const jwt = require('jsonwebtoken')
-require('dotenv').config();
+// const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY);
+// console.log("Stripe Secret Key:", process.env.STRIPE_SECRET_KEY); 
 const port = process.env.PORT || 7000;
 const { ObjectId } = require("mongodb"); // objectId import kora holo
 
@@ -74,7 +76,24 @@ async function run() {
             next(); // jodi hoy tahole next e jete parbe!
 
         }
-        //__________________jwt ends here___________________
+        //____________________jwt ends here______________________
+
+        //__________stripe payment gateway starts here___________
+        // app.post('/create-payment-intent', async (req, res) => {
+        //     const {price} = req.body;
+        //     const amount = parseInt(price * 100); // poysa akare count korbe
+            
+        //     const paymentIntent = await stripe.paymentIntents.create({
+        //         amount: amount,
+        //         currency: 'usd', 
+        //         payment_method_types: ['card'] // extra
+        //     });
+
+        //     res.send({
+        //         clientSecret: paymentIntent.client_secret
+        //     })
+        // })
+        //__________stripe  payment  gateway ends here___________
 
         // _________AnnouncementCollection starts here_________
         app.post('/announcements', async (req, res) => {
@@ -91,10 +110,7 @@ async function run() {
         // _________AnnouncementCollection ends here________
 
 
-
-
-        // __________UsersCollection starts here___________
-
+        // ____________tagsCollection starts here___________
         // tagsCollection--------------------------get
         app.get('/tags', async (req, res) => {
             const result = await tagsCollection.find().toArray();
@@ -106,6 +122,10 @@ async function run() {
             const result = await tagsCollection.insertOne(tag);
             res.send(result);
         })
+        // _____________tagsCollection ends here____________
+
+
+        // ___________UsersCollection starts here___________
         // stats or analytics for pieChart and totalUser or posts and comments:API
         app.get('/admin-stats', verifyToken, verifyAdmin, async (req, res) => {
             const users = await usersCollection.estimatedDocumentCount();
@@ -178,11 +198,6 @@ async function run() {
             const totalUsers = await usersCollection.countDocuments(query);
             res.send({ result, totalPages: Math.ceil(totalUsers / limit) });
         })
-        // usersCollection---------------------get
-        // app.get('/users',verifyToken, async(req, res) => {
-        //     const result = await usersCollection.find().toArray();
-        //     res.send(result);
-        // })
         // usersCollection---------------------post
         app.post('/users', async (req, res) => {
             const user = req.body;
@@ -262,7 +277,8 @@ async function run() {
             const postId = req.params.postId;
             const query = { postId: new ObjectId(postId) };
             const result = await commentsCollection.find(query).toArray();
-            res.send(result);
+            const totalComments = await commentsCollection.countDocuments(query);
+            res.send({result, totalComments});
         });
         //commentsCollection-----------reported---comments:
         app.post('/report', async (req, res) => {
@@ -386,11 +402,11 @@ async function run() {
         //_________postCollection ends here___________
 
 
+ 
 
 
-
-        await client.db("admin").command({ ping: 1 });
-        console.log("Pinged your deployment. You successfully connected to MongoDB!");
+        // await client.db("admin").command({ ping: 1 });
+        // console.log("Pinged your deployment. You successfully connected to MongoDB!");
     } finally {
         // Ensures that the client will close when you finish/error
         // await client.close();
